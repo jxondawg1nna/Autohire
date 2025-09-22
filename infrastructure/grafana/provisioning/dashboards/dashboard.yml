@@ -1,0 +1,11 @@
+apiVersion: 1
+
+disableDeletion: false
+folders:
+  - uid: autohire
+    title: AutoHire
+    editable: true
+    panels: []
+    timezone: browser
+    dashboards:
+      - file: dashboards/overview.json
