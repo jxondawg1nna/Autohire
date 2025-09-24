@@ -8,18 +8,18 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_env: str = "development"
-    database_url: str
-    redis_url: str
-    minio_endpoint: str
-    minio_access_key: str
-    minio_secret_key: str
-    meilisearch_url: str
-    meilisearch_api_key: str
-    qdrant_url: str
-    keycloak_url: str
-    keycloak_realm: str
-    keycloak_client_id: str
-    keycloak_client_secret: str
+    database_url: str = "sqlite:///./autohire.db"
+    redis_url: str = "redis://localhost:6379/0"
+    minio_endpoint: str = "http://localhost:9000"
+    minio_access_key: str = "minio"
+    minio_secret_key: str = "minio-secret"
+    meilisearch_url: str = "http://localhost:7700"
+    meilisearch_api_key: str = "test-key"
+    qdrant_url: str = "http://localhost:6333"
+    keycloak_url: str = "http://localhost:8080"
+    keycloak_realm: str = "autohire"
+    keycloak_client_id: str = "autohire-api"
+    keycloak_client_secret: str = "dev-secret"
     posthog_api_key: str | None = None
     allowed_origins: List[str] = []
 
