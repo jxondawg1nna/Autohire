@@ -1,13 +1,17 @@
 from __future__ import annotations
 
-import os
-
 from celery import Celery
 
-CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
-CELERY_BACKEND_URL = CELERY_BROKER_URL
+from .config import get_settings
 
-celery_app = Celery("autohire", broker=CELERY_BROKER_URL, backend=CELERY_BACKEND_URL)
+settings = get_settings()
+
+celery_app = Celery(
+    "autohire",
+    broker=settings.redis_url,
+    backend=settings.redis_url,
+    include=["app.tasks"],
+)
 celery_app.conf.task_default_queue = "default"
 celery_app.conf.result_expires = 3600
 
