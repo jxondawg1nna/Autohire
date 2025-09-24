@@ -1,0 +1,204 @@
+version: "3.9"
+
+services:
+  candidate-web:
+    build:
+      context: ../apps/candidate-portal
+      dockerfile: Dockerfile
+    env_file:
+      - ../apps/candidate-portal/.env.example
+    depends_on:
+      - api
+      - keycloak
+    ports:
+      - "3000:3000"
+
+  employer-web:
+    build:
+      context: ../apps/employer-portal
+      dockerfile: Dockerfile
+    env_file:
+      - ../apps/employer-portal/.env.example
+    depends_on:
+      - api
+      - keycloak
+    ports:
+      - "3001:3000"
+
+  admin-web:
+    build:
+      context: ../apps/admin-console
+      dockerfile: Dockerfile
+    env_file:
+      - ../apps/admin-console/.env.example
+    depends_on:
+      - api
+      - keycloak
+    ports:
+      - "3002:3000"
+
+  api:
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile
+    env_file:
+      - ../apps/api/.env.example
+    depends_on:
+      - postgres
+      - redis
+      - meilisearch
+      - qdrant
+      - minio
+      - keycloak
+    ports:
+      - "8000:8000"
+
+  worker:
+    build:
+      context: ../apps/worker
+      dockerfile: Dockerfile
+    env_file:
+      - ../apps/worker/.env.example
+    depends_on:
+      - api
+      - redis
+      - postgres
+
+  scheduler:
+    build:
+      context: ../apps/worker
+      dockerfile: Dockerfile
+    command: ["celery", "-A", "app.worker", "beat", "-l", "info"]
+    env_file:
+      - ../apps/worker/.env.example
+    depends_on:
+      - worker
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: autohire
+      POSTGRES_USER: autohire
+      POSTGRES_PASSWORD: autohire
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+
+  minio:
+    image: minio/minio:RELEASE.2024-02-17T00-00-00Z
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: autohire
+      MINIO_ROOT_PASSWORD: autohirepass
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.6
+    environment:
+      MEILI_MASTER_KEY: local_dev_master_key
+    ports:
+      - "7700:7700"
+    volumes:
+      - meili-data:/meili_data
+
+  qdrant:
+    image: qdrant/qdrant:v1.7.0
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:22.0
+    command:
+      - start-dev
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    ports:
+      - "8080:8080"
+
+  opencats:
+    image: opencats/opencats:0.9.7
+    environment:
+      MYSQL_ROOT_PASSWORD: opencats
+      MYSQL_DATABASE: opencats
+      MYSQL_USER: opencats
+      MYSQL_PASSWORD: opencats
+    ports:
+      - "8081:80"
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "8025:8025"
+
+  posthog:
+    image: posthog/posthog:latest
+    environment:
+      DATABASE_URL: postgresql://autohire:autohire@postgres:5432/posthog
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "8001:8000"
+
+  prometheus:
+    image: prom/prometheus:v2.48.1
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+      - worker
+
+  grafana:
+    image: grafana/grafana:10.3.1
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "3003:3000"
+    depends_on:
+      - prometheus
+
+  loki:
+    image: grafana/loki:2.9.0
+    command: ["-config.file=/etc/loki/config.yml"]
+    volumes:
+      - ./loki/config.yml:/etc/loki/config.yml:ro
+    ports:
+      - "3100:3100"
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    command: ["-config.file=/etc/promtail/config.yml"]
+    volumes:
+      - ./loki/promtail.yml:/etc/promtail/config.yml:ro
+    depends_on:
+      - loki
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  meili-data:
+  qdrant-data:
