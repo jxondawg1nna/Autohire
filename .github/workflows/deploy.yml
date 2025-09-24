@@ -1,0 +1,101 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment to deploy
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+        required: true
+      ref:
+        description: Git ref to deploy
+        default: main
+        required: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.inputs.environment }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  deployments: write
+  packages: read
+
+jobs:
+  deploy:
+    name: Deploy to ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event.inputs.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref }}
+
+      - name: Abort when deployment secrets are missing
+        if: ${{ secrets.DEPLOY_HOST == '' || secrets.DEPLOY_USER == '' || secrets.DEPLOY_SSH_KEY == '' }}
+        run: |
+          echo 'Deployment secrets are not configured. Please define DEPLOY_HOST, DEPLOY_USER, and DEPLOY_SSH_KEY.' >&2
+          exit 1
+
+      - name: Prepare deployment manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p deployment
+          timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          cat <<JSON > deployment/manifest.json
+          {
+            "environment": "${{ github.event.inputs.environment }}",
+            "ref": "${{ github.event.inputs.ref }}",
+            "sha": "${{ github.sha }}",
+            "run_id": "${{ github.run_id }}",
+            "run_number": "${{ github.run_number }}",
+            "timestamp": "${timestamp}"
+          }
+          JSON
+
+      - name: Run remote deployment
+        if: ${{ secrets.DEPLOY_HOST != '' && secrets.DEPLOY_USER != '' && secrets.DEPLOY_SSH_KEY != '' }}
+        uses: appleboy/ssh-action@v0.1.10
+        env:
+          DEPLOY_PROJECT_DIR: ${{ secrets.DEPLOY_PROJECT_DIR }}
+          DEPLOY_COMPOSE_FILE: ${{ secrets.DEPLOY_COMPOSE_FILE }}
+          DEPLOY_REGISTRY: ${{ secrets.DEPLOY_REGISTRY }}
+          DEPLOY_REGISTRY_USERNAME: ${{ secrets.DEPLOY_REGISTRY_USERNAME }}
+          DEPLOY_REGISTRY_PASSWORD: ${{ secrets.DEPLOY_REGISTRY_PASSWORD }}
+          DEPLOY_IMAGE_TAG: ${{ github.sha }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: DEPLOY_PROJECT_DIR,DEPLOY_COMPOSE_FILE,DEPLOY_REGISTRY,DEPLOY_REGISTRY_USERNAME,DEPLOY_REGISTRY_PASSWORD,DEPLOY_IMAGE_TAG
+          script: |
+            set -euo pipefail
+            project_dir=${DEPLOY_PROJECT_DIR:-/opt/autohire}
+            compose_file=${DEPLOY_COMPOSE_FILE:-$project_dir/docker-compose.yml}
+            registry=${DEPLOY_REGISTRY:-ghcr.io}
+            if [ -n "${DEPLOY_REGISTRY_USERNAME:-}" ] && [ -n "${DEPLOY_REGISTRY_PASSWORD:-}" ]; then
+              echo "${DEPLOY_REGISTRY_PASSWORD}" | docker login "$registry" -u "${DEPLOY_REGISTRY_USERNAME}" --password-stdin
+            fi
+            if [ ! -f "$compose_file" ]; then
+              echo "Compose file $compose_file not found" >&2
+              exit 1
+            fi
+            export AUTOHIRE_IMAGE_TAG=${DEPLOY_IMAGE_TAG}
+            docker compose -f "$compose_file" pull || true
+            docker compose -f "$compose_file" up -d
+            docker compose -f "$compose_file" run --rm api alembic upgrade head
+            docker compose -f "$compose_file" run --rm worker celery -A app.worker call autohire.echo --args '["reindex"]'
+
+      - name: Upload deployment manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-manifest-${{ github.event.inputs.environment }}
+          path: deployment/manifest.json

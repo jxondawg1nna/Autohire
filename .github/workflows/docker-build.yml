@@ -1,0 +1,98 @@
+name: Docker Images
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/**/Dockerfile'
+      - '.github/workflows/docker-build.yml'
+      - 'infrastructure/docker-compose.yml'
+  pull_request:
+    paths:
+      - 'apps/**/Dockerfile'
+      - '.github/workflows/docker-build.yml'
+      - 'infrastructure/docker-compose.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: candidate-portal
+            context: apps/candidate-portal
+            dockerfile: apps/candidate-portal/Dockerfile
+            image-suffix: candidate-portal
+          - name: employer-portal
+            context: apps/employer-portal
+            dockerfile: apps/employer-portal/Dockerfile
+            image-suffix: employer-portal
+          - name: admin-console
+            context: apps/admin-console
+            dockerfile: apps/admin-console/Dockerfile
+            image-suffix: admin-console
+          - name: api
+            context: apps/api
+            dockerfile: apps/api/Dockerfile
+            image-suffix: api
+          - name: worker
+            context: apps/worker
+            dockerfile: apps/worker/Dockerfile
+            image-suffix: worker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: |
+            ghcr.io/${{ github.repository }}/${{ matrix.image-suffix }}:${{ github.sha }}
+            ghcr.io/${{ github.repository }}/${{ matrix.image-suffix }}:latest
+          cache-from: type=gha,scope=${{ matrix.image-suffix }}
+          cache-to: type=gha,scope=${{ matrix.image-suffix }},mode=max
+          provenance: false
+
+      - name: Publish build metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${{ github.repository }}/${{ matrix.image-suffix }}"
+          echo "${image}@${{ steps.build.outputs.digest }}" | tee ${{ matrix.image-suffix }}-digest.txt
+
+      - name: Upload image digest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.image-suffix }}-image-digest
+          path: ${{ matrix.image-suffix }}-digest.txt
