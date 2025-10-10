@@ -1,0 +1,184 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/**'
+      - 'infrastructure/**'
+      - '.github/workflows/ci.yml'
+      - 'mypy.ini'
+  pull_request:
+    paths:
+      - 'apps/**'
+      - 'infrastructure/**'
+      - '.github/workflows/**'
+      - 'mypy.ini'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Frontend (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - candidate-portal
+          - employer-portal
+          - admin-console
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ matrix.app }}-${{ hashFiles(format('apps/{0}/package-lock.json', matrix.app), format('apps/{0}/package.json', matrix.app)) }}
+          restore-keys: |
+            ${{ runner.os }}-npm-${{ matrix.app }}-
+            ${{ runner.os }}-npm-
+
+      - name: Install dependencies
+        working-directory: apps/${{ matrix.app }}
+        run: npm install --no-audit --no-fund
+
+      - name: Lint
+        working-directory: apps/${{ matrix.app }}
+        run: |
+          set -o pipefail
+          mkdir -p reports
+          npm run lint -- --max-warnings=0 --format junit --output-file reports/eslint.xml | tee reports/eslint.log
+
+      - name: Type check
+        working-directory: apps/${{ matrix.app }}
+        run: |
+          set -o pipefail
+          npx tsc --noEmit --pretty false | tee reports/tsc.log
+
+      - name: Build
+        working-directory: apps/${{ matrix.app }}
+        run: |
+          set -o pipefail
+          npm run build | tee reports/build.log
+
+      - name: Test
+        working-directory: apps/${{ matrix.app }}
+        run: |
+          set -o pipefail
+          mkdir -p reports
+          if npm run test --if-present -- --watch=false 2>&1 | tee reports/tests.log; then
+            if [ ! -s reports/tests.log ]; then
+              echo "No tests defined for ${{ matrix.app }}." | tee -a reports/tests.log
+            fi
+          else
+            exit 1
+          fi
+
+      - name: Upload frontend artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app }}-frontend-reports
+          path: |
+            apps/${{ matrix.app }}/reports/**
+          if-no-files-found: warn
+
+  backend:
+    name: Backend (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - api
+          - worker
+    env:
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            apps/${{ matrix.service }}/requirements.txt
+            mypy.ini
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -eo pipefail
+          python -m pip install --upgrade pip
+          if [ "${{ matrix.service }}" = "api" ]; then
+            pip install -r apps/api/requirements.txt
+          else
+            pip install -r <(grep -v '^meilisearch' apps/worker/requirements.txt)
+            pip install 'meilisearch>=0.30,<0.31'
+          fi
+          pip install pytest mypy ruff
+
+      - name: Lint
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p apps/${{ matrix.service }}/reports
+          ruff check apps/${{ matrix.service }} | tee apps/${{ matrix.service }}/reports/ruff.txt
+
+      - name: Type check
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p apps/${{ matrix.service }}/reports
+          mypy --config-file mypy.ini apps/${{ matrix.service }} | tee apps/${{ matrix.service }}/reports/mypy.txt
+
+      - name: Test
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p apps/${{ matrix.service }}/reports
+          if [ "${{ matrix.service }}" = "api" ]; then
+            export DATABASE_URL="sqlite+aiosqlite:///:memory:"
+            export REDIS_URL="redis://localhost:6379/0"
+            export MINIO_ENDPOINT="http://localhost:9000"
+            export MINIO_ACCESS_KEY="ci"
+            export MINIO_SECRET_KEY="ci"
+            export MEILISEARCH_URL="http://localhost:7700"
+            export MEILISEARCH_API_KEY="ci"
+            export QDRANT_URL="http://localhost:6333"
+            export KEYCLOAK_URL="http://localhost:8080"
+            export KEYCLOAK_REALM="ci"
+            export KEYCLOAK_CLIENT_ID="ci"
+            export KEYCLOAK_CLIENT_SECRET="ci"
+            PYTHONPATH=apps/api pytest apps/api/tests -q --disable-warnings --junitxml=apps/api/reports/pytest.xml | tee apps/api/reports/pytest.log
+          else
+            PYTHONPATH=apps/worker pytest apps/worker -q --disable-warnings --junitxml=apps/worker/reports/pytest.xml | tee apps/worker/reports/pytest.log
+          fi
+
+      - name: Upload backend artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.service }}-backend-reports
+          path: |
+            apps/${{ matrix.service }}/reports/**
+          if-no-files-found: warn
