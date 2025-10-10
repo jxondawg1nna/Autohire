@@ -1,0 +1,270 @@
+version: '3.8'
+
+services:
+  # ============================================================================
+  # MAIN APPLICATION - Multi-Agent Job Hunter
+  # ============================================================================
+  autohire-full:
+    build:
+      context: .
+      dockerfile: Dockerfile.full
+    container_name: autohire-full
+    environment:
+      # NO LLM API KEYS NEEDED - Claude Code operates the system!
+      # All intelligence is in the automation logic, not API calls
+
+      # Langfuse Observability
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_HOST=http://langfuse:3000
+
+      # LangSmith (optional)
+      - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2:-false}
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY:-}
+      - LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT:-autohire}
+
+      # Database connections
+      - DATABASE_URL=postgresql://autohire_user:autohire_password@postgres:5432/autohire
+      - REDIS_URL=redis://redis:6379/0
+
+      # Neo4j Knowledge Graph
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=autohire_neo4j_password
+
+      # ChromaDB Vector Store
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - VECTOR_STORE_PATH=/app/data/chromadb
+
+      # Database hosts (for containerized environment)
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=autohire
+      - POSTGRES_USER=autohire_user
+      - POSTGRES_PASSWORD=autohire_password
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+
+      # Memory & RAG
+      - ENABLE_MEMORY=${ENABLE_MEMORY:-true}
+      - MEMORY_BACKEND=chromadb
+      - ENABLE_KNOWLEDGE_GRAPH=${ENABLE_KNOWLEDGE_GRAPH:-true}
+
+      # Job Platform Credentials
+      - LINKEDIN_USERNAME=${LINKEDIN_USERNAME}
+      - LINKEDIN_PASSWORD=${LINKEDIN_PASSWORD}
+      - SEEK_USERNAME=${SEEK_USERNAME}
+      - SEEK_PASSWORD=${SEEK_PASSWORD}
+      - INDEED_USERNAME=${INDEED_USERNAME}
+      - INDEED_PASSWORD=${INDEED_PASSWORD}
+
+      # Display settings
+      - DISPLAY=:99
+      - RESOLUTION=1920x1080x24
+
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ENABLE_LANGFUSE=true
+      - SAVE_SCREENSHOTS=true
+
+    ports:
+      - "6080:6080"  # noVNC web interface
+      - "5900:5900"  # VNC direct connection
+      - "8501:8501"  # Streamlit dashboard (optional)
+
+    volumes:
+      # Persist data
+      - ./data/chromadb:/app/data/chromadb
+      - ./data/screenshots:/app/data/screenshots
+      - ./data/results:/app/data/results
+      - ./data/cvs:/app/data/cvs
+      - ./logs:/app/logs
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      neo4j:
+        condition: service_healthy
+      chromadb:
+        condition: service_started
+      langfuse:
+        condition: service_started
+
+    networks:
+      - autohire-network
+
+    restart: unless-stopped
+
+  # ============================================================================
+  # POSTGRESQL - Main database + LangGraph checkpoints
+  # ============================================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: autohire-postgres
+    environment:
+      - POSTGRES_DB=autohire
+      - POSTGRES_USER=autohire_user
+      - POSTGRES_PASSWORD=autohire_password
+      - POSTGRES_HOST_AUTH_METHOD=md5
+      - POSTGRES_INITDB_ARGS=--auth-host=md5
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autohire_user -d autohire"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - autohire-network
+    restart: unless-stopped
+
+  # ============================================================================
+  # REDIS - Caching layer
+  # ============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: autohire-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - autohire-network
+    restart: unless-stopped
+
+  # ============================================================================
+  # NEO4J - Knowledge Graph Database
+  # ============================================================================
+  neo4j:
+    image: neo4j:5.12-community
+    container_name: autohire-neo4j
+    environment:
+      - NEO4J_AUTH=neo4j/autohire_neo4j_password
+      - NEO4J_PLUGINS=["apoc", "graph-data-science"]
+      - NEO4J_apoc_export_file_enabled=true
+      - NEO4J_apoc_import_file_enabled=true
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*,gds.*
+      - NEO4J_dbms_memory_heap_max__size=2G
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+      - neo4j-import:/var/lib/neo4j/import
+      - neo4j-plugins:/plugins
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - autohire-network
+    restart: unless-stopped
+
+  # ============================================================================
+  # CHROMADB - Vector Store for RAG
+  # ============================================================================
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: autohire-chromadb
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    ports:
+      - "8000:8000"
+    volumes:
+      - chromadb-data:/chroma/chroma
+    networks:
+      - autohire-network
+    restart: unless-stopped
+
+  # ============================================================================
+  # LANGFUSE - LLM Observability & Tracing
+  # ============================================================================
+  langfuse-db:
+    image: postgres:15-alpine
+    container_name: langfuse-postgres
+    environment:
+      - POSTGRES_DB=langfuse
+      - POSTGRES_USER=langfuse
+      - POSTGRES_PASSWORD=langfuse_password
+    volumes:
+      - langfuse-db-data:/var/lib/postgresql/data
+    networks:
+      - autohire-network
+    restart: unless-stopped
+
+  langfuse:
+    image: langfuse/langfuse:latest
+    container_name: autohire-langfuse
+    environment:
+      - DATABASE_URL=postgresql://langfuse:langfuse_password@langfuse-db:5432/langfuse
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=your-secret-key-change-this-in-production
+      - SALT=your-salt-change-this-in-production
+      - TELEMETRY_ENABLED=false
+    ports:
+      - "3000:3000"
+    depends_on:
+      - langfuse-db
+    networks:
+      - autohire-network
+    restart: unless-stopped
+
+  # ============================================================================
+  # STREAMLIT DASHBOARD (Optional - for monitoring)
+  # ============================================================================
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: autohire-dashboard
+    environment:
+      - DATABASE_URL=postgresql://autohire_user:autohire_password@postgres:5432/autohire
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=autohire_neo4j_password
+      - LANGFUSE_HOST=http://langfuse:3000
+    ports:
+      - "8502:8501"
+    depends_on:
+      - postgres
+      - neo4j
+      - langfuse
+    volumes:
+      - ./data/results:/app/data/results
+    networks:
+      - autohire-network
+    restart: unless-stopped
+    profiles:
+      - with-dashboard
+
+# ============================================================================
+# NETWORKS
+# ============================================================================
+networks:
+  autohire-network:
+    driver: bridge
+
+# ============================================================================
+# VOLUMES
+# ============================================================================
+volumes:
+  postgres-data:
+  redis-data:
+  neo4j-data:
+  neo4j-logs:
+  neo4j-import:
+  neo4j-plugins:
+  chromadb-data:
+  langfuse-db-data:

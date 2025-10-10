@@ -1,0 +1,78 @@
+{
+  "candidate": {
+    "full_name": "JANE SMITH",
+    "title": "Senior Full-Stack Developer",
+    "email": "jane.smith@email.com",
+    "phone": "(555) 123-4567",
+    "location": "Melbourne, Australia",
+    "cv_path": "E:\\Autohire 2\\sample_cv.txt",
+    "cv_text": "JANE SMITH\nSenior Full-Stack Developer\n\nEMAIL: jane.smith@email.com\nPHONE: (555) 123-4567\nLOCATION: Melbourne, Australia\n\nPROFESSIONAL SUMMARY\nExperienced full-stack developer with 8 years of expertise in building scalable web applications. \nProficient in modern JavaScript frameworks, Python backends, and cloud architecture. \nPassionate about AI/ML integration and automated testing practices.\n\nTECHNICAL SKILLS\nProgramming Languages: Python, JavaScript, TypeScript, Java, C#, SQL\nFrontend: React, Vue.js, Angular, HTML5, CSS3, Sass, Bootstrap, Tailwind CSS\nBackend: Node.js, FastAPI, Django, Express.js, Spring Boot, .NET Core\nDatabases: PostgreSQL, MongoDB, MySQL, Redis, Elasticsearch\nCloud & DevOps: AWS, Azure, Docker, Kubernetes, Jenkins, GitHub Actions\nAI/ML: TensorFlow, PyTorch, scikit-learn, OpenAI APIs\nTesting: Jest, Pytest, Cypress, Selenium\nTools: Git, VS Code, Postman, Jira, Confluence\n\nPROFESSIONAL EXPERIENCE\n\nSenior Full-Stack Developer | Tech Solutions Inc. | 2020 - Present\n\u2022 Led development of customer-facing web application serving 100k+ users\n\u2022 Implemented microservices architecture reducing response time by 40%\n\u2022 Built CI/CD pipeline with automated testing, increasing deployment frequency by 300%\n\u2022 Mentored junior developers and established code review practices\n\u2022 Integrated AI-powered chatbot using OpenAI API, improving customer satisfaction by 25%\n\nFull-Stack Developer | Digital Innovations Ltd. | 2017 - 2020\n\u2022 Developed e-commerce platform handling $2M+ annual revenue\n\u2022 Built real-time analytics dashboard with React and D3.js\n\u2022 Optimized database queries reducing load time by 60%\n\u2022 Collaborated with UX team to improve conversion rate by 35%\n\nJunior Developer | StartupXYZ | 2016 - 2017\n\u2022 Built responsive web applications using React and Node.js\n\u2022 Participated in agile development process with daily standups\n\u2022 Implemented RESTful APIs and integrated third-party services\n\u2022 Contributed to open-source projects on GitHub\n\nEDUCATION\nBachelor of Computer Science | University of Melbourne | 2012 - 2015\nRelevant Coursework: Data Structures, Algorithms, Software Engineering, Database Systems\n\nCERTIFICATIONS\n\u2022 AWS Solutions Architect Associate (2022)\n\u2022 Google Cloud Professional Developer (2021)\n\u2022 Microsoft Azure Developer Associate (2020)\n\nPROJECTS\nAI Job Matcher (2023)\n\u2022 Built full-stack application using React, FastAPI, and PostgreSQL\n\u2022 Implemented machine learning model for job-candidate matching\n\u2022 Deployed on AWS with auto-scaling and monitoring\n\nReal-time Chat Application (2022)\n\u2022 Developed using React, Socket.io, and Node.js\n\u2022 Supports file sharing, emoji reactions, and group chat\n\u2022 Handles 1000+ concurrent users\n\nACHIEVEMENTS\n\u2022 Top performer award 2021, 2022\n\u2022 Published article on \"Microservices Best Practices\" - 10k+ views\n\u2022 Speaker at Melbourne DevOps Conference 2022\n\u2022 Contributed to popular open-source project with 5k+ stars\n\nLANGUAGES\n\u2022 English (Native)\n\u2022 Mandarin (Conversational)\n\u2022 Spanish (Basic)",
+    "skills": [
+      "Python",
+      "JavaScript",
+      "TypeScript",
+      "Java",
+      "C#",
+      "SQL"
+    ],
+    "years_experience": 8,
+    "summary": "Experienced full-stack developer with 8 years of expertise in building scalable web applications. \nProficient in modern JavaScript frameworks, Python backends, and cloud architecture. \nPassionate about AI/ML integration and automated testing practices."
+  },
+  "applications": [],
+  "operations": [
+    {
+      "timestamp": "2025-10-08T17:20:43.288337",
+      "action": "INITIALIZE",
+      "details": "Starting Advanced Application Operator",
+      "status": "INFO"
+    },
+    {
+      "timestamp": "2025-10-08T17:20:43.288337",
+      "action": "LOAD_CV",
+      "details": "Reading: sample_cv.txt",
+      "status": "INFO"
+    },
+    {
+      "timestamp": "2025-10-08T17:20:43.289852",
+      "action": "LOAD_CV",
+      "details": "Loaded: JANE SMITH - Senior Full-Stack Developer",
+      "status": "SUCCESS"
+    },
+    {
+      "timestamp": "2025-10-08T17:20:43.289852",
+      "action": "PARSE_CV",
+      "details": "Email: jane.smith@email.com, Phone: (555) 123-4567",
+      "status": "INFO"
+    },
+    {
+      "timestamp": "2025-10-08T17:20:43.289852",
+      "action": "BROWSER",
+      "details": "Launching Playwright browser",
+      "status": "INFO"
+    },
+    {
+      "timestamp": "2025-10-08T17:20:43.875760",
+      "action": "BROWSER",
+      "details": "Browser ready (Melbourne, AU timezone)",
+      "status": "SUCCESS"
+    },
+    {
+      "timestamp": "2025-10-08T17:20:43.876277",
+      "action": "VISION",
+      "details": "Visual operator components active",
+      "status": "SUCCESS"
+    },
+    {
+      "timestamp": "2025-10-08T17:20:43.876277",
+      "action": "INITIALIZE",
+      "details": "All systems ready",
+      "status": "SUCCESS"
+    },
+    {
+      "timestamp": "2025-10-08T17:20:55.450902",
+      "action": "BATCH",
+      "details": "Starting batch application for 0 jobs",
+      "status": "INFO"
+    }
+  ]
+}

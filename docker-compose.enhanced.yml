@@ -1,0 +1,245 @@
+version: '3.8'
+
+services:
+  # Enhanced Autohire Backend
+  autohire-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.enhanced
+    ports:
+      - "8002:8002"
+    environment:
+      - DATABASE_URL=postgresql://autohire_user:autohire_password@postgres:5432/autohire
+      - REDIS_URL=redis://redis:6379/0
+      - QDRANT_URL=http://qdrant:6333
+      - MEILISEARCH_URL=http://meilisearch:7700
+    depends_on:
+      - postgres
+      - redis
+      - qdrant
+      - meilisearch
+    volumes:
+      - ./backend:/app
+      - /dev/shm:/dev/shm  # For browser automation
+    networks:
+      - autohire-network
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: autohire
+      POSTGRES_USER: autohire_user
+      POSTGRES_PASSWORD: autohire_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - autohire-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - autohire-network
+
+  # Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__LOG_LEVEL=INFO
+    networks:
+      - autohire-network
+
+  # Meilisearch
+  meilisearch:
+    image: getmeili/meilisearch:v1.5
+    ports:
+      - "7700:7700"
+    environment:
+      - MEILI_MASTER_KEY=your-master-key-here
+      - MEILI_ENV=development
+    volumes:
+      - meilisearch_data:/meili_data
+    networks:
+      - autohire-network
+
+  # Prometheus Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - autohire-network
+
+  # Grafana Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    depends_on:
+      - prometheus
+    networks:
+      - autohire-network
+
+  # cAdvisor for Container Monitoring
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    devices:
+      - /dev/kmsg
+    networks:
+      - autohire-network
+
+  # Elasticsearch for Logging
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=false
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - autohire-network
+
+  # Kibana for Log Visualization
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    networks:
+      - autohire-network
+
+  # Logstash for Log Processing
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.0
+    volumes:
+      - ./monitoring/logstash/pipeline:/usr/share/logstash/pipeline
+      - ./monitoring/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml
+    ports:
+      - "5044:5044"
+      - "9600:9600"
+    environment:
+      - "LS_JAVA_OPTS=-Xmx256m -Xms256m"
+    depends_on:
+      - elasticsearch
+    networks:
+      - autohire-network
+
+  # Celery Worker for Background Tasks
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.enhanced
+    command: celery -A app.worker worker --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql://autohire_user:autohire_password@postgres:5432/autohire
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./backend:/app
+    networks:
+      - autohire-network
+
+  # Flower for Celery Monitoring
+  flower:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.enhanced
+    command: celery -A app.worker flower --port=5555
+    ports:
+      - "5555:5555"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+      - celery-worker
+    networks:
+      - autohire-network
+
+  # Frontend (Next.js)
+  autohire-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3003:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8002
+    depends_on:
+      - autohire-backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - autohire-network
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - autohire-frontend
+      - autohire-backend
+    networks:
+      - autohire-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  meilisearch_data:
+  prometheus_data:
+  grafana_data:
+  elasticsearch_data:
+
+networks:
+  autohire-network:
+    driver: bridge
